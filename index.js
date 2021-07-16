@@ -3,18 +3,12 @@ const { createServer } = require('http');
 const { Server } = require('socket.io');
 const redis = require('redis');
 const redisAdapter = require('@socket.io/redis-adapter');
-const { MongoClient } = require('mongodb');
 const jwtDecode = require('jwt-decode');
 
 const PORT = process.env.PORT || 8080;
 
 const REDIS_HOST = process.env.REDIS_HOST || 'localhost';
 const REDIS_PORT = process.env.REDIS_PORT || 6379;
-
-const MONGO_HOST = process.env.MONGO_HOST || 'localhost';
-const MONGO_PORT = process.env.MONGO_PORT || 27017;
-const MONGO_DBNAME = process.env.MONGO_DBNAME || 'gamescore';
-const MONGO_COLLECTION = process.env.MONGO_COLLECTION || 'users';
 
 const httpServer = createServer();
 const io = new Server(httpServer, {
@@ -24,25 +18,6 @@ const io = new Server(httpServer, {
 });
 httpServer.listen(PORT);
 
-let mongoDb, collection;
-
-const mongoConnection = async () => {
-    const client = new MongoClient(`mongodb://${MONGO_HOST}:${MONGO_PORT}`);
-    await client.connect();
-
-    mongoDb = client.db(MONGO_DBNAME);
-    collection = mongoDb.collection(MONGO_COLLECTION);
-
-    // cache'i yeniden yükle
-    getTop100(true);
-};
-
-mongoConnection()
-.catch(err => {
-    console.error('Mongodb bağlantısı kurulamadı');
-    throw err;
-});
-
 const pubClient = redis.createClient({
     host: REDIS_HOST,
     port: REDIS_PORT,
@@ -50,50 +25,49 @@ const pubClient = redis.createClient({
 const subClient = pubClient.duplicate();
 const redisClient = pubClient.duplicate();
 
-const getValue = promisify(redisClient.get).bind(redisClient);
 const setValue = promisify(redisClient.set).bind(redisClient);
+const getValue = promisify(redisClient.get).bind(redisClient);
+const mGet = promisify(redisClient.mget).bind(redisClient);
+const zAdd = promisify(redisClient.zadd).bind(redisClient);
+const zIncrby = promisify(redisClient.zincrby).bind(redisClient);
+const zRevrank = promisify(redisClient.zrevrank).bind(redisClient);
+const zCard = promisify(redisClient.zcard).bind(redisClient);
+const zRevrange = promisify(redisClient.zrevrange).bind(redisClient);
+const ZMscore = promisify(redisClient.zmscore).bind(redisClient);
 
-const query = [{
-    '$sort': {
-        money: -1
-    }
-}, {
-    '$group': {
-        '_id': false,
-        'users': {
-            '$push': {
-                '_id': '$_id',
-                'id': '$id',
-                'name': '$name',
-                'country': '$country',
-                'money': '$money'
-            }
-        }
-    }
-}, {
-    '$unwind': {
-        'path': '$users',
-        'includeArrayIndex': 'rank'
-    }
-}];
+const getRangeUsers = async (min, max) => {
+    if (min === max)
+        return [];
 
-const getTop100 = async (goDb = false) => {
-    const top100 = JSON.parse(await getValue('get_top_100'));
+    const userScores = await zRevrange(['user_money', min, max, 'WITHSCORES']);
 
-    if (goDb || top100 === null) {
-        // TODO redis'e ekle
-        return await collection.aggregate(query.concat([{
-            '$project': {
-                'id': '$users.id',
-                'name': '$users.name',
-                'country': '$users.country',
-                'money': '$users.money',
-                'rank': '$rank',
-            }
-        }])).limit(100).toArray();
-    }
+    if (userScores.length < 1)
+        return [];
 
-    return top100;
+    const userIds = [];
+    const moneys = [];
+    userScores.forEach((x, i) => {
+        if (i % 2 === 0)
+            userIds.push(x);
+        else
+            moneys.push(x);
+    });
+
+    const userTodayScores = await ZMscore(['user_today_money', ...userIds]);
+
+    const users = (await mGet(userIds.map(x => `user_${x}`))).map(JSON.parse);
+    let index = min;
+    users.forEach((x, i) => {
+        x.money = moneys[i];
+        x.todayRank = userTodayScores[i];
+        x.rank = index++;
+    });
+
+    return users;
+};
+
+const getTop100 = async () => {
+    return await getRangeUsers(0, 99);
 };
 
 io.adapter(redisAdapter(pubClient, subClient));
@@ -109,15 +83,17 @@ io.on('connection', async (socket) => {
     }
 
     try {
-        const dbUser = await collection.findOne({ id: user.id });
-        if (dbUser == null) {
-            await collection.insertOne({
+        const redisUser = await zRevrank(['user_money', user.id]);
+        if (redisUser === null) {
+            await zAdd(['user_money', 0, user.id]);
+            const rank = await zRevrank(['user_money', user.id]);
+            await zAdd(['user_today_money', rank, user.id])
+
+            await setValue(`user_${user.id}`, JSON.stringify({
                 id: user.id,
                 name: user.name,
                 country: user.country,
-                money: 0,
-            });
-            await setValue(`user_${user.id}_money`, 0);
+            }));
         }
     }
     catch (e) {
@@ -128,32 +104,9 @@ io.on('connection', async (socket) => {
     const gameScore = async () => {
         const top100 = await getTop100();
 
-        let currentMoney = parseInt(await getValue(`user_${user.id}_money`));
-        if (isNaN(currentMoney)) {
-            currentMoney = (await collection.findOne({ id: user.id })).money;
-        }
+        const currentRank = await zRevrank(['user_money', user.id]);
 
-        const currentRank = (await collection.aggregate(query.concat([{
-            '$match': {
-                'users.id': user.id
-            },
-        }])).toArray())[0].rank;
-
-        let bottomList = await collection.aggregate(query.concat([{
-            '$match': {
-                'rank': {
-                    '$in': [currentRank+2, currentRank+1, currentRank, currentRank-1, currentRank-2, currentRank-3],
-                },
-            },
-        }, {
-            '$project': {
-                'id': '$users.id',
-                'name': '$users.name',
-                'country': '$users.country',
-                'money': '$users.money',
-                'rank': '$rank',
-            }
-        }])).toArray();
+        let bottomList = await getRangeUsers(currentRank - 3, currentRank + 2);
 
         // ilk 100 içerisinde olan elemanlar çıkarılıyor
         for (let i = 5; i >= 0; i--) {
@@ -171,7 +124,11 @@ io.on('connection', async (socket) => {
             ...bottomList,
         ];
 
+        // TODO bir öncekinin aynısı ise dönülmeyecek
+
         socket.emit('score', result);
+
+        return result;
     };
     gameScore();
 
@@ -180,17 +137,7 @@ io.on('connection', async (socket) => {
     // kişinin oyunu oynadıktan para kazandıran method
     socket.on('end-game', async (money = 1) => {
         try {
-            const top100 = await getTop100();
-            const oldMoney = parseInt(await getValue(`user_${user.id}_money`));
-            const newMoney = (oldMoney || 0) + money;
-
-            await setValue(`user_${user.id}_money`, newMoney);
-            await collection.updateOne({ id: user.id }, { '$set': { money: newMoney, } });
-
-            // top 100 değişmiştir cache'i yenile
-            if (top100.find(x => x.id === user.id || x.money < newMoney)) {
-                await getTop100(true);
-            }
+            await zIncrby(['user_money', money, user.id]);
 
             // kişiye hemen dön
             await gameScore();
