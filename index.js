@@ -1,3 +1,4 @@
+const cron = require('node-cron');
 const { promisify } = require('util');
 const { Server } = require('socket.io');
 const redis = require('redis');
@@ -88,3 +89,19 @@ io.on('connection', async (socket) => {
     })
 
 });
+
+// Her gün çalışacak şekilde
+// Ancak tek bir node'da çalışmalı
+cron.schedule('0 0 * * *', () => {
+    RankService.dailyRankCalc()
+    .catch(console.log);
+});
+
+
+// Her hafta sonu çalışacak çalışacak şekilde
+// Ancak tek bir node'da çalışmalı
+cron.schedule('0 0 * * 0', () => {
+    RankService.weeklyDistribution()
+    .catch(console.log);
+});
+
