@@ -1,9 +1,9 @@
 const { promisify } = require('util');
-const { createServer } = require('http');
 const { Server } = require('socket.io');
 const redis = require('redis');
 const redisAdapter = require('@socket.io/redis-adapter');
 const jwtDecode = require('jwt-decode');
+const app = require('express')();
 
 const RankService = require('./RankService');
 
@@ -12,13 +12,14 @@ const PORT = process.env.PORT || 8080;
 const REDIS_HOST = process.env.REDIS_HOST || 'localhost';
 const REDIS_PORT = process.env.REDIS_PORT || 6379;
 
-const httpServer = createServer(require('express')());
-const io = new Server(httpServer, {
+const server = app.use((req, res) => res.send('Hello All!'))
+  .listen(PORT, () => console.log(`Listening on ${PORT}`));
+
+const io = new Server(server, {
     cors: {
         origin: '*',
     },
 });
-httpServer.listen(PORT);
 
 const pubClient = redis.createClient(process.env.REDIS_URL || ({
     host: REDIS_HOST,
