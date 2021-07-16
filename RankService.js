@@ -1,7 +1,7 @@
 const { promisify } = require('util');
 
 let setValue, getValue, mGet, zAdd, zIncrby, zRevrank, zCard, zRevrange, ZMscore;
-class ScoreService {
+class RankService {
 	async redisInit(redisClient) {
 		setValue = promisify(redisClient.set).bind(redisClient);
 		getValue = promisify(redisClient.get).bind(redisClient);
@@ -95,4 +95,4 @@ class ScoreService {
 	}
 }
 
-module.exports = new ScoreService();
+module.exports = new RankService();
