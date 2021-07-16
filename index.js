@@ -20,7 +20,7 @@ const io = new Server(httpServer, {
 });
 httpServer.listen(PORT);
 
-const pubClient = redis.createClient(process.env.REDIS_TLS_URL || ({
+const pubClient = redis.createClient(process.env.REDIS_URL || ({
     host: REDIS_HOST,
     port: REDIS_PORT,
 }));
