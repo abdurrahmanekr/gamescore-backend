@@ -12,7 +12,7 @@ const PORT = process.env.PORT || 8080;
 const REDIS_HOST = process.env.REDIS_HOST || 'localhost';
 const REDIS_PORT = process.env.REDIS_PORT || 6379;
 
-const httpServer = createServer();
+const httpServer = createServer(require('express')());
 const io = new Server(httpServer, {
     cors: {
         origin: '*',
@@ -20,7 +20,7 @@ const io = new Server(httpServer, {
 });
 httpServer.listen(PORT);
 
-const pubClient = redis.createClient(process.env.REDIS_URL || ({
+const pubClient = redis.createClient(process.env.REDIS_TLS_URL || ({
     host: REDIS_HOST,
     port: REDIS_PORT,
 }));
