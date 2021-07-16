@@ -5,7 +5,7 @@ const redis = require('redis');
 const redisAdapter = require('@socket.io/redis-adapter');
 const jwtDecode = require('jwt-decode');
 
-const ScoreService = require('./ScoreService');
+const RankService = require('./RankService');
 
 const PORT = process.env.PORT || 8080;
 
@@ -27,7 +27,7 @@ const pubClient = redis.createClient({
 const subClient = pubClient.duplicate();
 const redisClient = pubClient.duplicate();
 
-ScoreService.redisInit(redisClient);
+RankService.redisInit(redisClient);
 
 io.adapter(redisAdapter(pubClient, subClient));
 
@@ -42,18 +42,26 @@ io.on('connection', async (socket) => {
     }
 
     try {
-        await ScoreService.checkUserAndCreate(user);
+        await RankService.checkUserAndCreate(user);
     }
     catch (e) {
         console.log('Veritabanı işleminde hata oluştu', e);
         socket.disconnect();
     }
 
-    const gameScore = async () => {
-        const result = await ScoreService.gameScore(user.id);
+    let lastSendedScore = [];
 
-        // TODO bir öncekinin aynısı ise dönülmeyecek
-        socket.emit('score', result);
+    const gameScore = async () => {
+        const result = await RankService.gameScore(user.id);
+
+        // Değişiklik olmuşsa client'a dönüyor ki
+        // gereksiz yere trafik oluşturmasın
+        let changed = RankService.changesCheck(lastSendedScore, result);
+
+        if (changed) {
+            lastSendedScore = result;
+            socket.emit('score', result);
+        }
 
         return result;
     };
@@ -64,7 +72,7 @@ io.on('connection', async (socket) => {
     // kişinin oyunu oynadıktan para kazandıran method
     socket.on('end-game', async (money = 1) => {
         try {
-            await ScoreService.endGame(user.id, money);
+            await RankService.endGame(user.id, money);
 
             // kişiye hemen dön
             await gameScore();

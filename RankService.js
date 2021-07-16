@@ -93,6 +93,22 @@ class RankService {
 	async endGame(userId, money) {
         return await zIncrby(['user_money', money, userId]);
 	}
+
+	changesCheck(before, after) {
+        if (after.length !== before.length) {
+            return true;
+        }
+
+        for (let i = 0; i < after.length; i++) {
+            for (let j in after[i]) {
+                if (after[i][j] !== before[i][j]) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+	}
 }
 
 module.exports = new RankService();
