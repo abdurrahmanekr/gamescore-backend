@@ -1,0 +1,21 @@
+{
+  "name": "gamescore-backend",
+  "version": "1.0.0",
+  "description": "GameScore Back-End Project",
+  "main": "index.js",
+  "author": "Avare Kodcu <abdurrahmaneker58@gmail.com>",
+  "license": "MIT",
+  "private": false,
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "@socket.io/redis-adapter": "^7.0.0",
+    "@socket.io/redis-emitter": "^4.1.0",
+    "express": "^4.17.1",
+    "jwt-decode": "^3.1.2",
+    "mongodb": "^4.0.0",
+    "redis": "^3.1.2",
+    "socket.io": "^4.1.3"
+  }
+}
